@@ -6,7 +6,7 @@ const path = require("path");
 const url = require("url");
 
 const PORT = 8325;
-const FRONTEND_DIR = "D:/DESK/a自建桌面/学习平台/adaptive-tutor-system-main/frontend";
+const FRONTEND_DIR = path.join(__dirname, "frontend");
 const BACKEND_HOST = "localhost";
 const BACKEND_PORT = 8001;
 

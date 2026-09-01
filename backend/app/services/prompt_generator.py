@@ -4,6 +4,8 @@ import logging
 from typing import List, Dict, Any, Tuple
 from ..schemas.chat import UserStateSummary
 from ..schemas.content import CodeContent
+from app.core.config import settings
+from app.services.socratic_strategy import SOCRATIC_SYSTEM_PROMPT, build_socratic_guidance
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,9 @@ class PromptGenerator:
     def __init__(self):
         self.base_system_prompt = """
 You are 'Alex', a world-class AI programming tutor. Your goal is to help a student master a specific topic by providing personalized, empathetic, and insightful guidance. You must respond in Markdown format.
+
+## LANGUAGE RULE (IMPORTANT)
+Always reply in the SAME LANGUAGE the learner uses. If the learner writes in Chinese (简体中文), you MUST reply in Chinese. If they write in English, reply in English. Never switch to another language on your own, and never answer in English when the learner is writing in Chinese.
 
 ## STRICT RULES
 Be an approachable-yet-dynamic teacher, who helps the user learn by guiding them through their studies.
@@ -123,6 +128,9 @@ Above all: DO NOT DO THE USER'S WORK FOR THEM. Don't answer homework questions -
         # 基础身份与规则
         prompt_parts = [self.base_system_prompt]
 
+        # 苏格拉底策略所需的提问次数（后续可能被行为数据覆盖）
+        question_count = 0
+
         # 简短情感策略
         emotion = user_state.emotion_state.get('current_sentiment', 'NEUTRAL')
         emotion_strategy = PromptGenerator._get_emotion_strategy(emotion)
@@ -146,6 +154,17 @@ Above all: DO NOT DO THE USER'S WORK FOR THEM. Don't answer homework questions -
         elif mode == "learning":
             prompt_parts.append("MODE: learning; provide structured explanations, examples, and checks for understanding.")
 
+        # 苏格拉底教学法（若启用）：注入提问式引导规则与分级脚手架
+        if getattr(settings, 'ENABLE_SOCRATIC_METHOD', True):
+            prompt_parts.append(SOCRATIC_SYSTEM_PROMPT)
+            test_failed = False
+            if mode == 'test' and test_results:
+                try:
+                    test_failed = any(not (r.get('passed', True)) for r in test_results) if isinstance(test_results, list) else False
+                except Exception:
+                    test_failed = False
+            prompt_parts.append(build_socratic_guidance(question_count, mode, test_failed))
+
         # Always include the current topic anchor when available
         if content_title:
             prompt_parts.append(f"TOPIC: {content_title}")
@@ -166,6 +185,7 @@ Above all: DO NOT DO THE USER'S WORK FOR THEM. Don't answer homework questions -
         if content_title is not None and isinstance(behavior_patterns, dict):
             q_key = f"question_count_{content_title}"
             has_question_count = q_key in behavior_patterns
+            question_count = behavior_patterns.get(q_key, 0) or 0
         has_learning_focus = bool(behavior_patterns.get('knowledge_level_history'))
 
         # mastery 存在判定（兼容 dict 与对象）

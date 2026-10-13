@@ -1,0 +1,105 @@
+自主WEB【yingjie】改进方向（第4-7条可实行性分析）
+====================================================
+
+4. 去掉两个小模型+画像，使用统一提示词
+--------------------------------------
+可实行性：高（且是架构简化）
+
+定位明确：
+- 小模型①：sentiment_bert 本地情感模型
+  文件：backend/app/services/sentiment_analysis_service.py
+- 小模型②：all-mpnet-base-v2 聚类编码器
+  文件：backend/app/services/clustering_core_service.py
+- 画像：backend/app/services/user_state_service.py 里的 StudentProfile/BKT（74KB大文件）
+
+删除后 requirements.txt 可去掉 torch / transformers / sentence-transformers，
+部署体积和内存大幅下降（这是额外收益）。
+
+风险：自适应性退化。
+建议：在统一提示词中内置分层教学策略（现有 levels 1-4 结构正好可复用），
+并保留行为统计作为 prompt 上下文。
+
+需改核心文件：
+- backend/app/services/dynamic_controller.py
+- backend/app/services/user_state_service.py
+- backend/app/services/prompt_generator.py
+- requirements.txt
+
+
+5. 压缩现有学习路径，尝试整合多个小节
+------------------------------------
+可实行性：高（纯数据层改动）
+
+现状：6 章 × 3 节 = 18 个 JSON
+文件位置：backend/app/data/learning_content/1_1.json ~ 6_3.json
+
+JSON 结构要点：
+- topic_id：章节编号
+- title：节标题
+- levels：1-4 级分层教学描述（level 1 入门 → level 4 综合练习）
+- sc_all：各 topic 对应的 select_element 可选元素白名单
+
+注意：topic_id 贯穿以下五处，压缩时必须同步修改：
+1. learning_content（学习内容 JSON）
+2. test_tasks（测试题 JSON）
+3. sandbox_service 检查点
+4. 前端导航（frontend/js/pages/learning_page.js、navigation.js）
+5. select_element 白名单（sc_all 字段）
+
+属于机械性工作，无架构风险，但需保证五处 ID 一致。
+
+
+6. 重构现有 agent 框架
+----------------------
+可实行性：可行，但工作量最大
+
+关键认知：现状不是真正的 agent（无工具调用循环），
+而是 dynamic_controller.py 的固定 pipeline：
+    画像 → 情感分析 → RAG检索 → 进度聚类 → 拼prompt → 调用LLM
+
+核心文件：
+- backend/app/services/dynamic_controller.py（编排器，约28KB）
+- backend/app/services/prompt_generator.py（提示词组装，约40KB）
+- backend/app/services/llm_gateway.py（LLM调用网关，约7KB）
+
+重构建议：
+- 保留可复用层：llm_gateway.py、RAGService、sandbox_service
+- 重写中间编排：从固定 pipeline 改为真正的 agent 循环
+  （LLM 自主决定何时调用 RAG 检索、何时触发沙箱评测、何时给反馈）
+
+重要：本条与第4条应合并为一次重构，避免改两遍。
+
+
+7. 多个示例页面的资源生成 + 配套学习资料生成 + 测试题目修改
+----------------------------------------------------------
+可实行性：可行，但需加人工审核环节
+
+现状：所有内容均为手工 JSON：
+- 示例页面：frontend/pages/example_pages/（index.html、index01.html、index02.html）
+- 学习资料：backend/app/data/learning_content/*.json
+- 测试题目：backend/app/data/test_tasks/*.json
+  结构包含 description_md（题目描述）、start_code（初始代码）、
+  checkpoints（检查点数组，支持三类断言）：
+    · assert_element      元素存在检查
+    · assert_text_content 元素文本检查
+    · custom_script       自定义JS脚本检查
+  每个检查点带 feedback 反馈文案。
+
+可行方案：
+- 写 LLM 生成脚本，批量产出：示例页面 HTML、levels 学习描述、测试题 JSON
+- 配套生成 select_element 白名单和 checkpoints 检查点
+
+关键风险：
+示例页面 HTML 本身和检查点的正确性必须有人工审核环节，
+否则评测题会出现"标准答案错误"的硬伤（比如选择器写错、断言逻辑反了）。
+
+
+建议实施顺序
+============
+第4+6条（架构重构，一次到位）
+    → 第5条（内容压缩）
+    → 第1+2+3条（页面机制扩充，基础都在）
+    → 第7条（批量生成收尾）
+
+整体判断：需求方想要的"统一提示词 + 简化架构"方向与现状痛点吻合，
+没有不可行的条款。

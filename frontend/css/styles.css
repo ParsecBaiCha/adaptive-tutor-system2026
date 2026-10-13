@@ -3099,7 +3099,7 @@
     .feedback-modal .feedback-content {
         margin: 0;
         padding: 0;
-        width: 520px;
+        width: 760px;
         max-width: 92vw;
         max-height: calc(100vh - 32px);
         overflow-y: auto;
@@ -3356,12 +3356,21 @@
     }
 
     .fb-final-score {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--spacing-sm);
         text-align: center;
         font-size: var(--font-size-base);
         color: var(--text-light);
         margin-bottom: var(--spacing-md);
-        padding-bottom: var(--spacing-md);
+        padding: var(--spacing-xs) 0 var(--spacing-md);
         border-bottom: 1px dashed var(--border-color);
+    }
+
+    .fb-final-label {
+        font-size: var(--font-size-sm);
+        color: var(--text-light);
     }
 
     .fb-final-strong {
@@ -3370,76 +3379,18 @@
         color: var(--primary-color);
     }
 
-    /* ---------- 对比行 ---------- */
-    .fb-compare-row {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: var(--spacing-md);
-        margin-bottom: var(--spacing-md);
-    }
-
-    .fb-compare-item {
-        text-align: center;
-    }
-
-    .fb-compare-name {
-        display: block;
-        font-size: var(--font-size-xs);
-        color: var(--text-light);
-        margin-bottom: 2px;
-    }
-
-    .fb-compare-score {
-        display: block;
-        font-size: var(--font-size-xl);
-        font-weight: 700;
-        color: var(--text-color);
-    }
-
-    .fb-compare-badge {
+    .fb-final-star-row {
         display: inline-flex;
+        gap: 2px;
         align-items: center;
-        justify-content: center;
-        width: 36px;
-        height: 36px;
-        border-radius: 50%;
-        font-size: 18px;
-        font-weight: 800;
-        color: #fff;
+        margin-left: var(--spacing-xs);
     }
 
-    .fb-compare-eq {
-        background: var(--success-color);
+    .fb-final-star-row .fb-star {
+        font-size: 24px;
     }
 
-    .fb-compare-up {
-        background: var(--warning-color);
-    }
-
-    .fb-compare-down {
-        background: var(--secondary-color);
-    }
-
-    .fb-badge-pop {
-        animation: fb-badge-pop 0.5s ease;
-    }
-
-    @keyframes fb-badge-pop {
-        0%   { transform: scale(0.5); opacity: 0; }
-        60%  { transform: scale(1.2); opacity: 1; }
-        100% { transform: scale(1); }
-    }
-
-    .fb-compare-text {
-        font-size: var(--font-size-sm);
-        color: var(--text-light);
-        text-align: center;
-        margin-bottom: var(--spacing-md);
-        line-height: 1.6;
-    }
-
-    /* ---------- 错误总结 / 激励文本块 ---------- */
+    /* ---------- 学习肯定 / 错误总结 内容块 ---------- */
     .fb-final-block {
         margin-top: var(--spacing-md);
     }
@@ -3454,12 +3405,17 @@
         margin-bottom: var(--spacing-xs);
     }
 
-    .fb-box-title iconify-icon {
+    .fb-negative .fb-box-title iconify-icon {
         color: var(--error-color);
     }
 
-    .fb-final-block:last-of-type .fb-box-title iconify-icon {
+    .fb-positive .fb-box-title iconify-icon {
         color: var(--success-color);
+    }
+
+    .fb-positive .fb-box-content {
+        background: #f0fdf4;
+        border-color: #bbf7d0;
     }
 
     .fb-box-content {
@@ -3535,11 +3491,6 @@
         box-shadow: 0 6px 16px -2px rgba(79, 70, 229, 0.5);
     }
 
-    /* ---------- 只读星星（展示用） ---------- */
-    .fb-final-score .fb-star {
-        font-size: 20px;
-    }
-
     /* ---------- 响应式 ---------- */
     @media (max-width: 540px) {
         .feedback-modal {
@@ -3565,8 +3516,9 @@
             font-size: 32px;
         }
 
-        .fb-compare-row {
-            gap: var(--spacing-sm);
+        .fb-final-score {
+            flex-wrap: wrap;
+            gap: var(--spacing-xs);
         }
 
         .feedback-actions {

@@ -24,6 +24,48 @@ const STAR_LABELS = {
   5: '非常满意',
 };
 
+// ---------------------------------------------------------------------------
+// 实验开关：小节/章节反馈的两种模式
+// ---------------------------------------------------------------------------
+//   有自评模式（selfEvaluationEnabled = true，默认）：先自主评价，再看系统评价
+//   无自评模式（selfEvaluationEnabled = false）：不做自主评价，直接看系统评价
+//
+// 便于后续给用户测试时切换，取值优先级从高到低：
+//   1) window.FEEDBACK_SELF_EVAL_ENABLED（布尔值，可在控制台或页面注入）
+//   2) URL 参数 ?self_eval=0 / ?self_eval=1（0/false/off 表示无自评模式）
+//   3) FeedbackConfig.selfEvaluationEnabled（代码内开关，默认有自评模式）
+export const FeedbackConfig = {
+  // true：有自评模式；false：无自评模式
+  selfEvaluationEnabled: true,
+};
+
+/**
+ * 设置自主评价开关（可在流程中动态调整）
+ * @param {boolean} enabled
+ */
+export function setSelfEvaluationEnabled(enabled) {
+  FeedbackConfig.selfEvaluationEnabled = !!enabled;
+  return FeedbackConfig.selfEvaluationEnabled;
+}
+
+/**
+ * 解析当前生效的自主评价开关（综合全局覆盖、URL 参数与代码内开关）
+ */
+function resolveSelfEvaluationEnabled() {
+  if (typeof window !== 'undefined' && typeof window.FEEDBACK_SELF_EVAL_ENABLED === 'boolean') {
+    return window.FEEDBACK_SELF_EVAL_ENABLED;
+  }
+  try {
+    const v = new URLSearchParams(window.location.search).get('self_eval');
+    if (v !== null) {
+      return !(v === '0' || v.toLowerCase() === 'false' || v.toLowerCase() === 'off');
+    }
+  } catch (e) {
+    // 忽略 URL 解析异常，回退到代码内开关
+  }
+  return FeedbackConfig.selfEvaluationEnabled;
+}
+
 // 保存当前弹窗的 Promise resolve，避免并发弹窗
 let currentResolver = null;
 
@@ -334,9 +376,26 @@ function renderInteractiveStars() {
 // 弹窗 DOM 构建
 // ---------------------------------------------------------------------------
 
-function buildModalHtml({ topicId, topicLabel, feedbackType }) {
+function buildModalHtml({ topicId, topicLabel, feedbackType, selfEvalEnabled = true }) {
   const title = feedbackType === 'chapter' ? '章节反馈' : '小节反馈';
   const label = topicLabel && topicLabel !== topicId ? topicLabel : '';
+
+  // 过程线：开启自主评价展示两步；关闭时只展示系统评价一步（评分对比与文本修改仍在后台完成）
+  const stepperHtml = selfEvalEnabled
+    ? `<div class="fb-step is-active" data-step="1"><span class="fb-step-num">1</span><span class="fb-step-name">自我评价</span></div>
+        <div class="fb-step-line"></div>
+        <div class="fb-step" data-step="2"><span class="fb-step-num">2</span><span class="fb-step-name">系统评价</span></div>`
+    : `<div class="fb-step is-active" data-step="2"><span class="fb-step-num">1</span><span class="fb-step-name">系统评价</span></div>`;
+
+  // 步骤1：用户自我评价（仅在开启时渲染；系统评价此时已在后台生成，暂不展示）
+  const selfPanelHtml = selfEvalEnabled
+    ? `<div class="fb-panel is-active" data-panel="1">
+          <div class="fb-panel-title"><iconify-icon icon="mdi:star-face" width="18" height="18"></iconify-icon> 先来做个自我评价</div>
+          <p class="fb-hint">在查看系统评价之前，先凭感觉给自己打个分吧～</p>
+          <div class="fb-stars-input-wrap" id="fb-self-stars">${renderInteractiveStars()}</div>
+          <div class="fb-self-label" id="fb-self-label">${STAR_LABELS[0]}</div>
+        </div>`
+    : '';
 
   return `
   <div id="sectionFeedbackModal" class="modal feedback-modal" style="display: block;">
@@ -353,49 +412,29 @@ function buildModalHtml({ topicId, topicLabel, feedbackType }) {
 
       <!-- 过程线（仅展示给用户的步骤；评分对比与文本修改在后台完成） -->
       <div class="feedback-stepper">
-        <div class="fb-step is-active" data-step="1"><span class="fb-step-num">1</span><span class="fb-step-name">自我评价</span></div>
-        <div class="fb-step-line"></div>
-        <div class="fb-step" data-step="2"><span class="fb-step-num">2</span><span class="fb-step-name">系统评价</span></div>
+        ${stepperHtml}
       </div>
 
       <!-- 步骤内容 -->
       <div class="feedback-body">
 
-        <!-- 步骤1：用户自我评价（系统评价此时已在后台生成，暂不展示） -->
-        <div class="fb-panel is-active" data-panel="1">
-          <div class="fb-panel-title"><iconify-icon icon="mdi:star-face" width="18" height="18"></iconify-icon> 先来做个自我评价</div>
-          <p class="fb-hint">在查看系统评价之前，先凭感觉给自己打个分吧～</p>
-          <div class="fb-stars-input-wrap" id="fb-self-stars">${renderInteractiveStars()}</div>
-          <div class="fb-self-label" id="fb-self-label">${STAR_LABELS[0]}</div>
-        </div>
+        ${selfPanelHtml}
 
-        <!-- 步骤2：展示系统评价（后台已完成评分对比与文本修改） -->
+        <!-- 步骤2：展示系统评价（自评对比在后台完成，不展示给用户） -->
         <div class="fb-panel" data-panel="2">
           <div class="fb-panel-title"><iconify-icon icon="mdi:check-decagram-outline" width="18" height="18"></iconify-icon> 系统评价</div>
           <div class="fb-final-box">
             <div class="fb-final-score" id="fb-final-score"></div>
-            <div class="fb-compare-row">
-              <div class="fb-compare-item">
-                <span class="fb-compare-name">系统评分</span>
-                <span class="fb-compare-score" id="fb-cmp-system">-</span>
-              </div>
-              <div class="fb-compare-badge" id="fb-cmp-badge">=</div>
-              <div class="fb-compare-item">
-                <span class="fb-compare-name">我的评分</span>
-                <span class="fb-compare-score" id="fb-cmp-self">-</span>
-              </div>
+            <div class="fb-final-block fb-positive">
+              <div class="fb-box-title"><iconify-icon icon="mdi:hand-wave-outline" width="16" height="16"></iconify-icon> 学习肯定</div>
+              <div class="fb-box-content fb-pos-content" id="fb-final-pos"></div>
             </div>
-            <div class="fb-compare-text" id="fb-cmp-text"></div>
-            <div class="fb-final-block">
+            <div class="fb-final-block fb-negative">
               <div class="fb-box-title"><iconify-icon icon="mdi:alert-circle-outline" width="16" height="16"></iconify-icon> 错误总结</div>
               <div class="fb-box-content" id="fb-final-neg"></div>
             </div>
-            <div class="fb-final-block">
-              <div class="fb-box-title"><iconify-icon icon="mdi:hand-wave-outline" width="16" height="16"></iconify-icon> 激励文本</div>
-              <div class="fb-box-content" id="fb-final-pos"></div>
-            </div>
           </div>
-          <div class="fb-thanks">把系统评价当作一面镜子，经常和自己的判断对比，你会越来越了解自己的掌握情况，继续加油！</div>
+          <div class="fb-thanks">系统评价是你的一面镜子，经常和自己的感受对照，你会越来越了解自己的掌握情况，继续加油！</div>
         </div>
 
       </div>
@@ -441,17 +480,22 @@ export function showSectionFeedback(options) {
   closeModal();
 
   const systemEval = generateSystemEvaluation(options);
+  // 实验开关：是否展示"自主评价"步骤
+  const selfEvalEnabled = resolveSelfEvaluationEnabled();
 
   const modalHtml = buildModalHtml({
     topicId: options.topicId,
     topicLabel: options.topicLabel,
     feedbackType: options.feedbackType,
+    selfEvalEnabled,
   });
   document.body.insertAdjacentHTML('beforeend', modalHtml);
 
   return new Promise((resolve) => {
     currentResolver = resolve;
-    let currentStep = 1;
+    // 起始步骤：关闭自主评价时直接从"系统评价"开始
+    const firstStep = selfEvalEnabled ? 1 : 2;
+    let currentStep = firstStep;
     let selfScore = 0;
     // 后台完成对比与文本修改后的最终评价
     let final = null;
@@ -475,11 +519,12 @@ export function showSectionFeedback(options) {
       modal.querySelector(`.fb-panel[data-panel="${step}"]`).classList.add('is-active');
       for (let i = 1; i <= 2; i++) {
         const stepEl = modal.querySelector(`.fb-step[data-step="${i}"]`);
+        if (!stepEl) continue;
         if (i < step) stepEl.classList.add('is-done');
         if (i === step) stepEl.classList.add('is-active');
       }
 
-      prevBtn.style.display = step === 1 ? 'none' : 'inline-block';
+      prevBtn.style.display = step === firstStep ? 'none' : 'inline-block';
       skipBtn.style.display = step === 2 ? 'none' : 'inline-block';
 
       if (step === 2) {
@@ -490,31 +535,20 @@ export function showSectionFeedback(options) {
       }
     }
 
-    // ---------- 步骤2 渲染最终展示（后台对比 + 文本修改，基于当前自评分实时计算） ----------
+    // ---------- 步骤2 渲染最终展示（自评对比与文本微调在后台完成，仅展示系统评价） ----------
     function renderFinal() {
-      // 每次进入步骤2都基于最新的自评分重新计算，避免"上一步改分后返回"时展示旧结果
-      final = finalizeEvaluation(systemEval, selfScore);
+      // 开启自主评价时：后台基于最新自评分重算文本微调，避免"上一步改分后返回"时展示旧结果
+      // 关闭自主评价时：无自评分，直接展示系统评价原文，不做对比微调
+      final = selfEvalEnabled ? finalizeEvaluation(systemEval, selfScore) : null;
 
+      // 仅展示系统评分
       document.getElementById('fb-final-score').innerHTML =
-        `系统 <span class="fb-final-strong">${systemEval.systemScore.toFixed(1)}</span> ★` +
-        `&nbsp;&nbsp;vs&nbsp;&nbsp;我的 <span class="fb-final-strong">${selfScore}</span> ★`;
+        `<span class="fb-final-label">系统评分</span>` +
+        `<span class="fb-final-strong">${systemEval.systemScore.toFixed(1)}</span>` +
+        `<span class="fb-final-star-row">${renderReadonlyStars(systemEval.systemScore)}</span>`;
 
-      document.getElementById('fb-cmp-system').textContent = systemEval.systemScore.toFixed(1);
-      document.getElementById('fb-cmp-self').textContent = selfScore;
-
-      const cmpBadge = document.getElementById('fb-cmp-badge');
-      cmpBadge.textContent = final.symbol;
-      cmpBadge.className =
-        'fb-compare-badge fb-compare-' +
-        (final.diff > 0 ? 'up' : final.diff < 0 ? 'down' : 'eq');
-      // 播放一次对比动画
-      cmpBadge.classList.remove('fb-badge-pop');
-      void cmpBadge.offsetWidth;
-      cmpBadge.classList.add('fb-badge-pop');
-
-      document.getElementById('fb-cmp-text').textContent = final.comparisonText;
-      document.getElementById('fb-final-neg').innerHTML = escapeHtml(final.negativeText);
-      document.getElementById('fb-final-pos').innerHTML = escapeHtml(final.positiveText);
+      document.getElementById('fb-final-pos').innerHTML = escapeHtml(final ? final.positiveText : systemEval.positiveText);
+      document.getElementById('fb-final-neg').innerHTML = escapeHtml(final ? final.negativeText : systemEval.negativeText);
     }
 
     // ---------- 提交 ----------
@@ -589,43 +623,45 @@ export function showSectionFeedback(options) {
       goToStep(currentStep + 1);
     });
 
-    // 自我评价星星
-    const starsWrap = document.getElementById('fb-self-stars');
-    const starEls = starsWrap.querySelectorAll('.fb-star-input');
+    // 自我评价星星（仅在展示自主评价步骤时初始化）
+    if (selfEvalEnabled) {
+      const starsWrap = document.getElementById('fb-self-stars');
+      const starEls = starsWrap.querySelectorAll('.fb-star-input');
 
-    starEls.forEach((star) => {
-      star.addEventListener('mouseenter', () => {
-        const v = parseInt(star.dataset.v, 10);
-        starEls.forEach((s) => {
-          const sv = parseInt(s.dataset.v, 10);
-          s.classList.toggle('fb-star-hover', sv <= v);
+      starEls.forEach((star) => {
+        star.addEventListener('mouseenter', () => {
+          const v = parseInt(star.dataset.v, 10);
+          starEls.forEach((s) => {
+            const sv = parseInt(s.dataset.v, 10);
+            s.classList.toggle('fb-star-hover', sv <= v);
+          });
+          document.getElementById('fb-self-label').textContent = STAR_LABELS[v];
         });
-        document.getElementById('fb-self-label').textContent = STAR_LABELS[v];
+
+        star.addEventListener('click', () => {
+          const v = parseInt(star.dataset.v, 10);
+          selfScore = v;
+          starEls.forEach((s) => {
+            const sv = parseInt(s.dataset.v, 10);
+            s.classList.toggle('fb-star-selected', sv <= v);
+            s.classList.remove('fb-star-pop');
+            if (sv === v) {
+              // 点击的星星播放弹跳动画
+              s.classList.add('fb-star-pop');
+            }
+          });
+          document.getElementById('fb-self-label').textContent = STAR_LABELS[v];
+        });
       });
 
-      star.addEventListener('click', () => {
-        const v = parseInt(star.dataset.v, 10);
-        selfScore = v;
-        starEls.forEach((s) => {
-          const sv = parseInt(s.dataset.v, 10);
-          s.classList.toggle('fb-star-selected', sv <= v);
-          s.classList.remove('fb-star-pop');
-          if (sv === v) {
-            // 点击的星星播放弹跳动画
-            s.classList.add('fb-star-pop');
-          }
-        });
-        document.getElementById('fb-self-label').textContent = STAR_LABELS[v];
+      starsWrap.addEventListener('mouseleave', () => {
+        starEls.forEach((s) => s.classList.remove('fb-star-hover'));
+        document.getElementById('fb-self-label').textContent =
+          selfScore ? STAR_LABELS[selfScore] : STAR_LABELS[0];
       });
-    });
+    }
 
-    starsWrap.addEventListener('mouseleave', () => {
-      starEls.forEach((s) => s.classList.remove('fb-star-hover'));
-      document.getElementById('fb-self-label').textContent =
-        selfScore ? STAR_LABELS[selfScore] : STAR_LABELS[0];
-    });
-
-    goToStep(1);
+    goToStep(firstStep);
   });
 }
 
@@ -639,4 +675,4 @@ export function closeModal() {
   }
 }
 
-export default { showSectionFeedback, closeModal };
+export default { showSectionFeedback, closeModal, FeedbackConfig, setSelfEvaluationEnabled };
